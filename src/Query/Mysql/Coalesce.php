@@ -2,12 +2,14 @@
 
 namespace DoctrineExtensions\Query\Mysql;
 
+use Doctrine\ORM\Query\AST\ArithmeticExpression;
 use Doctrine\ORM\Query\AST\Functions\FunctionNode;
 use Doctrine\ORM\Query\Parser;
 use Doctrine\ORM\Query\SqlWalker;
 use Doctrine\ORM\Query\TokenType;
 
-use function count;
+use function array_map;
+use function implode;
 
 /**
  * @link https://dev.mysql.com/doc/refman/en/comparison-operators.html#function_coalesce
@@ -16,46 +18,28 @@ use function count;
  */
 class Coalesce extends FunctionNode
 {
-    private $field = null;
-
     private $values = [];
 
     public function parse(Parser $parser): void
     {
         $parser->match(TokenType::T_IDENTIFIER);
         $parser->match(TokenType::T_OPEN_PARENTHESIS);
-        $this->field = $parser->ArithmeticExpression();
-        $lexer       = $parser->getLexer();
+        $lexer = $parser->getLexer();
 
-        while (
-            count($this->values) < 1 ||
-            $lexer->lookahead->type !== TokenType::T_CLOSE_PARENTHESIS
-        ) {
+        do {
             $parser->match(TokenType::T_COMMA);
             $this->values[] = $parser->ArithmeticExpression();
-        }
+        } while ($lexer->lookahead->type !== TokenType::T_CLOSE_PARENTHESIS);
 
         $parser->match(TokenType::T_CLOSE_PARENTHESIS);
     }
 
     public function getSql(SqlWalker $sqlWalker): string
     {
-        $query = 'COALESCE(';
+        $values = array_map(static function (ArithmeticExpression $value) use ($sqlWalker): string {
+            return $value->dispatch($sqlWalker);
+        }, $this->values);
 
-        $query .= $this->field->dispatch($sqlWalker);
-
-        $query .= ', ';
-
-        for ($i = 0; $i < count($this->values); $i++) {
-            if ($i > 0) {
-                $query .= ', ';
-            }
-
-            $query .= $this->values[$i]->dispatch($sqlWalker);
-        }
-
-        $query .= ')';
-
-        return $query;
+        return 'COALESCE(' . implode(', ', $values) . ')';
     }
 }
